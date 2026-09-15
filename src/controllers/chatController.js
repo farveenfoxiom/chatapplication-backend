@@ -6,6 +6,43 @@ const MESSAGES = require("../constants/messages");
 
 const {sendSuccess,sendError,} = require("../utils/response");
 
+const getMessagePreview = (message) => {
+  if (message.isDeletedForEveryone) {
+    return "This message was deleted";
+  }
+
+  if (message.messageType === "image") {
+    return "📷 Photo";
+  }
+
+  if (message.messageType === "file") {
+    return `📎 ${message.fileName || "File"}`;
+  }
+
+  if (message.fileUrl && message.fileName) {
+    const extension = message.fileName
+      .split(".")
+      .pop()
+      ?.toLowerCase();
+
+    const imageExtensions = [
+      "jpg",
+      "jpeg",
+      "png",
+      "webp",
+      "gif",
+    ];
+
+    if (imageExtensions.includes(extension)) {
+      return "📷 Photo";
+    }
+
+    return `📎 ${message.fileName}`;
+  }
+
+  return message.text || "";
+};
+
 const getChatSummary = async (currentUser, otherUserId) => {
   const messages = await Message.find({
     $or: [
@@ -24,25 +61,29 @@ const getChatSummary = async (currentUser, otherUserId) => {
       (item) =>
         item.user.toString() === currentUser.toString()
     );
+
     if (
       chatDeletion &&
       message.createdAt <= chatDeletion.deletedAt
     ) {
       continue;
     }
+
     const deletedForCurrentUser = message.deletedFor?.some(
-      (id) => id.toString() === currentUser.toString()
+      (id) =>
+        id.toString() === currentUser.toString()
     );
+
     if (deletedForCurrentUser) {
       continue;
     }
+
     if (!lastMessageFound) {
-      lastMessage = message.isDeletedForEveryone
-        ? "This message was deleted"
-        : message.text;
+      lastMessage = getMessagePreview(message);
       lastMessageTime = message.createdAt;
       lastMessageFound = true;
     }
+
     if (
       message.receiver.toString() ===
         currentUser.toString() &&
@@ -63,6 +104,7 @@ const getChatSummary = async (currentUser, otherUserId) => {
 const getRecentChats = async (req, res) => {
   try {
     const currentUser = req.user.userId;
+
     const messages = await Message.find({
       $or: [
         { sender: currentUser },
@@ -80,44 +122,51 @@ const getRecentChats = async (req, res) => {
       );
 
     const chatsMap = new Map();
+
     for (const message of messages) {
       const isCurrentUserSender =
         message.sender._id.toString() ===
         currentUser.toString();
+
       const otherUser = isCurrentUserSender
         ? message.receiver
         : message.sender;
+
       const otherUserId = otherUser._id.toString();
+
       const chatDeletion = message.chatDeletedFor?.find(
         (item) =>
           item.user.toString() ===
           currentUser.toString()
       );
+
       if (
         chatDeletion &&
         message.createdAt <= chatDeletion.deletedAt
       ) {
         continue;
       }
+
       const deletedForCurrentUser =
         message.deletedFor?.some(
           (id) =>
             id.toString() ===
             currentUser.toString()
         );
+
       if (deletedForCurrentUser) {
         continue;
       }
+
       if (!chatsMap.has(otherUserId)) {
         chatsMap.set(otherUserId, {
           user: otherUser,
-          lastMessage: message.isDeletedForEveryone
-            ? "This message was deleted"
-            : message.text,
+          lastMessage: getMessagePreview(message),
           lastMessageTime: message.createdAt,
           unreadCount: 0,
         });
       }
+
       if (
         message.receiver._id.toString() ===
           currentUser.toString() &&
@@ -127,7 +176,9 @@ const getRecentChats = async (req, res) => {
         chatsMap.get(otherUserId).unreadCount += 1;
       }
     }
+
     const chats = Array.from(chatsMap.values());
+
     return sendSuccess(
       res,
       STATUS_CODES.OK,
@@ -140,6 +191,7 @@ const getRecentChats = async (req, res) => {
       "Get recent chats error:",
       error
     );
+
     return sendError(
       res,
       STATUS_CODES.INTERNAL_SERVER_ERROR,
@@ -152,7 +204,9 @@ const getChatPreview = async (req, res) => {
   try {
     const { userId } = req.params;
     const currentUser = req.user.userId;
+
     const otherUser = await User.findById(userId);
+
     if (!otherUser) {
       return sendError(
         res,
@@ -160,10 +214,12 @@ const getChatPreview = async (req, res) => {
         MESSAGES.USER_NOT_FOUND
       );
     }
+
     const preview = await getChatSummary(
       currentUser,
       userId
     );
+
     return sendSuccess(
       res,
       STATUS_CODES.OK,
@@ -176,6 +232,7 @@ const getChatPreview = async (req, res) => {
       "Get chat preview error:",
       error
     );
+
     return sendError(
       res,
       STATUS_CODES.INTERNAL_SERVER_ERROR,
@@ -188,7 +245,9 @@ const deleteChat = async (req, res) => {
   try {
     const { userId } = req.params;
     const currentUser = req.user.userId;
+
     const otherUser = await User.findById(userId);
+
     if (!otherUser) {
       return sendError(
         res,
@@ -196,7 +255,9 @@ const deleteChat = async (req, res) => {
         MESSAGES.USER_NOT_FOUND
       );
     }
+
     const deletedAt = new Date();
+
     const messages = await Message.find({
       $or: [
         {
@@ -209,6 +270,7 @@ const deleteChat = async (req, res) => {
         },
       ],
     });
+
     for (const message of messages) {
       const existingDeletion =
         message.chatDeletedFor?.find(
@@ -216,6 +278,7 @@ const deleteChat = async (req, res) => {
             item.user.toString() ===
             currentUser.toString()
         );
+
       if (existingDeletion) {
         existingDeletion.deletedAt = deletedAt;
       } else {
@@ -224,8 +287,10 @@ const deleteChat = async (req, res) => {
           deletedAt,
         });
       }
+
       await message.save();
     }
+
     return sendSuccess(
       res,
       STATUS_CODES.OK,
@@ -238,6 +303,7 @@ const deleteChat = async (req, res) => {
       "Delete chat error:",
       error
     );
+
     return sendError(
       res,
       STATUS_CODES.INTERNAL_SERVER_ERROR,
@@ -245,4 +311,9 @@ const deleteChat = async (req, res) => {
     );
   }
 };
-module.exports = {getRecentChats,getChatPreview,deleteChat,};
+
+module.exports = {
+  getRecentChats,
+  getChatPreview,
+  deleteChat,
+};

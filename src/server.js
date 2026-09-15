@@ -9,11 +9,9 @@ const initializeSocket = require("./socket/socket");
 const { setIO } = require("./socket/socketInstance");
 
 const PORT = process.env.PORT || 5000;
-
 const server = http.createServer(app);
 
 const io = initializeSocket(server);
-
 setIO(io);
 
 const startServer = async () => {

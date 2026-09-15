@@ -1,11 +1,21 @@
 const multer = require("multer");
 const path = require("path");
 
-const storage = multer.memoryStorage();
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads/");
+  },
+  filename: (req, file, cb) => {
+    const extension = path.extname(file.originalname);
+    const fileName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${extension}`;
+    cb(null, fileName);
+  },
+});
+
 const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, 
+    fileSize: 50 * 1024 * 1024, 
   },
   fileFilter: (req, file, cb) => {
     const allowedMimeTypes = [
@@ -14,6 +24,19 @@ const upload = multer({
       "image/png",
       "image/webp",
       "image/gif",
+      "video/webm",
+      "video/mp4",
+      "video/quicktime", // .mov
+      "video/x-msvideo", // .avi
+      "video/x-matroska", // .mkv
+      "video/3gpp",
+      "application/octet-stream",
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/zip",
     ];
     const allowedExtensions = [
       ".jpg",
@@ -21,18 +44,27 @@ const upload = multer({
       ".png",
       ".webp",
       ".gif",
+      ".mp4",
+      ".webm",
+      ".mov",
+      ".avi",
+      ".mkv",
+      ".3gp",
+      ".pdf",
+      ".doc",
+      ".docx",
+      ".xls",
+      ".xlsx",
+      ".zip",
     ];
     const extension = path.extname(file.originalname).toLowerCase();
-    console.log("File name:", file.originalname);
-    console.log("MIME type:", file.mimetype);
-    console.log("Extension:", extension);
     if (
       allowedMimeTypes.includes(file.mimetype) ||
       allowedExtensions.includes(extension)
     ) {
       cb(null, true);
     } else {
-      cb(new Error("Only JPG, PNG, WEBP and GIF images are allowed"));
+      cb(new Error("Invalid file type"));
     }
   },
 });

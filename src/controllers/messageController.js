@@ -10,12 +10,18 @@ const {getIO} = require("../socket/socketInstance");
 const sendMessage = async (req, res) => {
   try {
     const { receiver, text } = req.body;
-
-    if (!receiver || !text || text.trim() === "") {
+    if (!receiver) {
       return sendError(
         res,
         STATUS_CODES.BAD_REQUEST,
         MESSAGES.RECEIVER_REQUIRED
+      );
+    }
+    if ((!text || text.trim() === "") && !req.file) {
+      return sendError(
+        res,
+        STATUS_CODES.BAD_REQUEST,
+        "Message or file is required"
       );
     }
     const sender = req.user.userId;
@@ -27,15 +33,33 @@ const sendMessage = async (req, res) => {
         MESSAGES.USER_NOT_FOUND
       );
     }
+    let messageType = "text";
+    let fileUrl = null;
+    let fileName = null;
+    let fileSize = null;
+    if (req.file) {
+      const isImage = req.file.mimetype.startsWith("image/");
+      messageType = isImage ? "image" : "file";
+      fileUrl = `/uploads/${req.file.filename}`;
+      fileName = req.file.originalname;
+      fileSize = req.file.size;
+    }
     const message = await Message.create({
       sender,
       receiver,
-      text: text.trim(),
+      text: text?.trim() || "",
+      messageType,
+      fileUrl,
+      fileName,
+      fileSize,
     });
+
     try {
       const io = getIO();
       const receiverRoom = receiver.toString();
-      io.to(receiverRoom).emit("new_message", {message,});
+      io.to(receiverRoom).emit("new_message", {
+        message,
+      });
     } catch (socketError) {
       console.error(
         "Socket notification error:",
@@ -265,6 +289,20 @@ const markMessagesAsRead = async (req, res) => {
         $set: {isRead: true,},
       }
     );
+    if (result.modifiedCount > 0) {
+      try {
+        const io = getIO();
+
+        io.to(userId.toString()).emit("messages_read", {
+          userId: currentUser.toString(),
+        });
+      } catch (socketError) {
+        console.error(
+          "Socket read receipt error:",
+          socketError
+        );
+      }
+    }
     return sendSuccess(
       res,
       STATUS_CODES.OK,{

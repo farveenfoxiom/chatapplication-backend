@@ -7,7 +7,6 @@ const userSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-
     username: {
       type: String,
       required: true,
@@ -15,7 +14,6 @@ const userSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
-
     email: {
       type: String,
       required: true,
@@ -23,21 +21,22 @@ const userSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
-
     password: {
       type: String,
       required: true,
     },
-
     profileImage: {
       type: String,
       default: "",
     },
-
     bio: {
       type: String,
       default: "",
       maxlength: 150,
+    },
+    lastSeen: {
+      type: Date,
+      default: null,
     },
   },
   {

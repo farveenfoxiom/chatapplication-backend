@@ -2,6 +2,9 @@ const {Server,} = require("socket.io");
 
 const jwt = require("jsonwebtoken");
 
+const User = require("../models/User");
+const Message = require("../models/Message");
+
 const onlineUsers = new Map();
 const offlineTimers = new Map();
 
@@ -13,7 +16,6 @@ const initializeSocket = (server) => {
       credentials: true,
     },
   });
-
 
   io.use(
     (socket, next) => {
@@ -33,7 +35,7 @@ const initializeSocket = (server) => {
     }
   );
 
-  io.on("connection", (socket) => {
+  io.on("connection", async (socket) => {
     socket.join(socket.userId);
     const existingTimer = offlineTimers.get(socket.userId);
     if (existingTimer) {
@@ -47,13 +49,61 @@ const initializeSocket = (server) => {
       });
     }
     onlineUsers.get(socket.userId).add(socket.id);
-    socket.on("check_user_online", (userId) => {
-      const targetUserId = userId.toString();
-      const isOnline = onlineUsers.has(targetUserId);
-      socket.emit("user_online_status", {
-        userId: targetUserId,
-        isOnline,
-      });
+    const undeliveredMessages = await Message.find({
+      receiver: socket.userId,
+      isDelivered: false,
+      deletedFor: {$ne: socket.userId,},
+    });
+    for (const message of undeliveredMessages) {
+      message.isDelivered = true;
+      await message.save();
+      io.to(message.sender.toString()).emit(
+        "message_delivered",
+        {
+          messageId: message._id,
+        }
+      );
+    }
+    socket.on("message_delivered", async (messageId) => {
+      try {
+        const message = await Message.findById(messageId);
+        if (!message) return;
+        if (
+          message.receiver.toString() !==
+          socket.userId.toString()
+        ) {
+          return;
+        }
+        if (message.isDelivered) return;
+        message.isDelivered = true;
+        await message.save();
+        io.to(message.sender.toString()).emit(
+          "message_delivered",
+          {
+            messageId: message._id,
+          }
+        );
+      } catch (error) {
+        console.error(
+          "Message delivery error:",
+          error
+        );
+      }
+    });
+
+    socket.on("check_user_online", async (userId) => {
+      try {
+        const targetUserId = userId.toString();
+        const isOnline = onlineUsers.has(targetUserId);
+        const user = await User.findById(targetUserId).select("lastSeen");
+        socket.emit("user_online_status", {
+          userId: targetUserId,
+          isOnline,
+          lastSeen: user?.lastSeen || null,
+        });
+      } catch (error) {
+        console.error("Check online status error:",error);
+      }
     });
     socket.on("disconnect", () => {
       const userSockets = onlineUsers.get(socket.userId);
@@ -64,12 +114,26 @@ const initializeSocket = (server) => {
       if (userSockets.size > 0) {
         return;
       }
-      const timer = setTimeout(() => {
+      const timer = setTimeout(async () => {
         const currentSockets = onlineUsers.get(socket.userId);
         if (!currentSockets || currentSockets.size === 0) {
           onlineUsers.delete(socket.userId);
+          try {
+            await User.findByIdAndUpdate(
+              socket.userId,
+              {
+                lastSeen: new Date(),
+              }
+            );
+          } catch (error) {
+            console.error(
+              "Last seen update error:",
+              error
+            );
+          }
           socket.broadcast.emit("user_offline", {
             userId: socket.userId,
+            lastSeen: new Date(),
           });
         }
         offlineTimers.delete(socket.userId);
