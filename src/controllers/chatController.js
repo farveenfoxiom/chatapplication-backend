@@ -4,7 +4,7 @@ const User = require("../models/User");
 const STATUS_CODES = require("../constants/statusCodes");
 const MESSAGES = require("../constants/messages");
 
-const {sendSuccess,sendError,} = require("../utils/response");
+const { sendSuccess, sendError } = require("../utils/response");
 
 const getMessagePreview = (message) => {
   if (message.isDeletedForEveryone) {
@@ -15,26 +15,26 @@ const getMessagePreview = (message) => {
     return "📷 Photo";
   }
 
+  if (message.messageType === "video") {
+    return "🎥 Video";
+  }
+
   if (message.messageType === "file") {
     return `📎 ${message.fileName || "File"}`;
   }
 
   if (message.fileUrl && message.fileName) {
-    const extension = message.fileName
-      .split(".")
-      .pop()
-      ?.toLowerCase();
+    const extension = message.fileName.split(".").pop()?.toLowerCase();
 
-    const imageExtensions = [
-      "jpg",
-      "jpeg",
-      "png",
-      "webp",
-      "gif",
-    ];
+    const imageExtensions = ["jpg", "jpeg", "png", "webp", "gif"];
+    const videoExtensions = ["mp4", "webm", "mov", "avi", "mkv"];
 
     if (imageExtensions.includes(extension)) {
       return "📷 Photo";
+    }
+
+    if (videoExtensions.includes(extension)) {
+      return "🎥 Video";
     }
 
     return `📎 ${message.fileName}`;
@@ -58,20 +58,15 @@ const getChatSummary = async (currentUser, otherUserId) => {
 
   for (const message of messages) {
     const chatDeletion = message.chatDeletedFor?.find(
-      (item) =>
-        item.user.toString() === currentUser.toString()
+      (item) => item.user.toString() === currentUser.toString()
     );
 
-    if (
-      chatDeletion &&
-      message.createdAt <= chatDeletion.deletedAt
-    ) {
+    if (chatDeletion && message.createdAt <= chatDeletion.deletedAt) {
       continue;
     }
 
     const deletedForCurrentUser = message.deletedFor?.some(
-      (id) =>
-        id.toString() === currentUser.toString()
+      (id) => id.toString() === currentUser.toString()
     );
 
     if (deletedForCurrentUser) {
@@ -85,8 +80,7 @@ const getChatSummary = async (currentUser, otherUserId) => {
     }
 
     if (
-      message.receiver.toString() ===
-        currentUser.toString() &&
+      message.receiver.toString() === currentUser.toString() &&
       message.isRead !== true &&
       !message.isDeletedForEveryone
     ) {
@@ -106,53 +100,47 @@ const getRecentChats = async (req, res) => {
     const currentUser = req.user.userId;
 
     const messages = await Message.find({
-      $or: [
-        { sender: currentUser },
-        { receiver: currentUser },
-      ],
+      // receiver: { $exists: true } excludes group messages, which use
+      // `group` instead of `receiver` — without this, a group message
+      // reaches this loop with receiver === undefined and crashes when
+      // otherUser._id is accessed below.
+      receiver: { $exists: true },
+      $or: [{ sender: currentUser }, { receiver: currentUser }],
     })
       .sort({ createdAt: -1 })
-      .populate(
-        "sender",
-        "name username email profileImage bio"
-      )
-      .populate(
-        "receiver",
-        "name username email profileImage bio"
-      );
+      .populate("sender", "name username email profileImage bio")
+      .populate("receiver", "name username email profileImage bio");
 
     const chatsMap = new Map();
 
     for (const message of messages) {
       const isCurrentUserSender =
-        message.sender._id.toString() ===
-        currentUser.toString();
+        message.sender._id.toString() === currentUser.toString();
 
       const otherUser = isCurrentUserSender
         ? message.receiver
         : message.sender;
 
-      const otherUserId = otherUser._id.toString();
-
-      const chatDeletion = message.chatDeletedFor?.find(
-        (item) =>
-          item.user.toString() ===
-          currentUser.toString()
-      );
-
-      if (
-        chatDeletion &&
-        message.createdAt <= chatDeletion.deletedAt
-      ) {
+      // Defensive fallback: if the other side of a 1:1 message somehow
+      // has no populated user (e.g. their account was deleted), skip it
+      // rather than crash the whole recent-chats list.
+      if (!otherUser) {
         continue;
       }
 
-      const deletedForCurrentUser =
-        message.deletedFor?.some(
-          (id) =>
-            id.toString() ===
-            currentUser.toString()
-        );
+      const otherUserId = otherUser._id.toString();
+
+      const chatDeletion = message.chatDeletedFor?.find(
+        (item) => item.user.toString() === currentUser.toString()
+      );
+
+      if (chatDeletion && message.createdAt <= chatDeletion.deletedAt) {
+        continue;
+      }
+
+      const deletedForCurrentUser = message.deletedFor?.some(
+        (id) => id.toString() === currentUser.toString()
+      );
 
       if (deletedForCurrentUser) {
         continue;
@@ -168,8 +156,7 @@ const getRecentChats = async (req, res) => {
       }
 
       if (
-        message.receiver._id.toString() ===
-          currentUser.toString() &&
+        message.receiver._id.toString() === currentUser.toString() &&
         message.isRead !== true &&
         !message.isDeletedForEveryone
       ) {
@@ -179,18 +166,11 @@ const getRecentChats = async (req, res) => {
 
     const chats = Array.from(chatsMap.values());
 
-    return sendSuccess(
-      res,
-      STATUS_CODES.OK,
-      {
-        chats,
-      }
-    );
+    return sendSuccess(res, STATUS_CODES.OK, {
+      chats,
+    });
   } catch (error) {
-    console.error(
-      "Get recent chats error:",
-      error
-    );
+    console.error("Get recent chats error:", error);
 
     return sendError(
       res,
@@ -208,30 +188,16 @@ const getChatPreview = async (req, res) => {
     const otherUser = await User.findById(userId);
 
     if (!otherUser) {
-      return sendError(
-        res,
-        STATUS_CODES.NOT_FOUND,
-        MESSAGES.USER_NOT_FOUND
-      );
+      return sendError(res, STATUS_CODES.NOT_FOUND, MESSAGES.USER_NOT_FOUND);
     }
 
-    const preview = await getChatSummary(
-      currentUser,
-      userId
-    );
+    const preview = await getChatSummary(currentUser, userId);
 
-    return sendSuccess(
-      res,
-      STATUS_CODES.OK,
-      {
-        preview,
-      }
-    );
+    return sendSuccess(res, STATUS_CODES.OK, {
+      preview,
+    });
   } catch (error) {
-    console.error(
-      "Get chat preview error:",
-      error
-    );
+    console.error("Get chat preview error:", error);
 
     return sendError(
       res,
@@ -249,11 +215,7 @@ const deleteChat = async (req, res) => {
     const otherUser = await User.findById(userId);
 
     if (!otherUser) {
-      return sendError(
-        res,
-        STATUS_CODES.NOT_FOUND,
-        MESSAGES.USER_NOT_FOUND
-      );
+      return sendError(res, STATUS_CODES.NOT_FOUND, MESSAGES.USER_NOT_FOUND);
     }
 
     const deletedAt = new Date();
@@ -272,12 +234,9 @@ const deleteChat = async (req, res) => {
     });
 
     for (const message of messages) {
-      const existingDeletion =
-        message.chatDeletedFor?.find(
-          (item) =>
-            item.user.toString() ===
-            currentUser.toString()
-        );
+      const existingDeletion = message.chatDeletedFor?.find(
+        (item) => item.user.toString() === currentUser.toString()
+      );
 
       if (existingDeletion) {
         existingDeletion.deletedAt = deletedAt;
@@ -291,18 +250,11 @@ const deleteChat = async (req, res) => {
       await message.save();
     }
 
-    return sendSuccess(
-      res,
-      STATUS_CODES.OK,
-      {
-        message: MESSAGES.CHAT_DELETED,
-      }
-    );
+    return sendSuccess(res, STATUS_CODES.OK, {
+      message: MESSAGES.CHAT_DELETED,
+    });
   } catch (error) {
-    console.error(
-      "Delete chat error:",
-      error
-    );
+    console.error("Delete chat error:", error);
 
     return sendError(
       res,

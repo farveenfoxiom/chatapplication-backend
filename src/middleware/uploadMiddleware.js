@@ -5,9 +5,11 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "uploads/");
   },
+
   filename: (req, file, cb) => {
     const extension = path.extname(file.originalname);
     const fileName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${extension}`;
+
     cb(null, fileName);
   },
 });
@@ -15,7 +17,10 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 50 * 1024 * 1024, 
+    // Videos are much larger than images/docs, so the old flat 5MB cap
+    // rejected every recording before it even reached fileFilter. Bump
+    // this to match (or exceed) the client's video size cap.
+    fileSize: 50 * 1024 * 1024, // 50 MB
   },
   fileFilter: (req, file, cb) => {
     const allowedMimeTypes = [
@@ -30,6 +35,8 @@ const upload = multer({
       "video/x-msvideo", // .avi
       "video/x-matroska", // .mkv
       "video/3gpp",
+      // Some browsers/recorders report a generic type for recorded blobs;
+      // the extension check below is the real safety net for those cases.
       "application/octet-stream",
       "application/pdf",
       "application/msword",
@@ -38,6 +45,7 @@ const upload = multer({
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "application/zip",
     ];
+
     const allowedExtensions = [
       ".jpg",
       ".jpeg",
@@ -57,7 +65,13 @@ const upload = multer({
       ".xlsx",
       ".zip",
     ];
+
     const extension = path.extname(file.originalname).toLowerCase();
+
+    console.log("File name:", file.originalname);
+    console.log("MIME type:", file.mimetype);
+    console.log("Extension:", extension);
+
     if (
       allowedMimeTypes.includes(file.mimetype) ||
       allowedExtensions.includes(extension)
