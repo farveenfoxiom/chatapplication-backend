@@ -95,7 +95,7 @@ const messageSchema = new mongoose.Schema(
     ],
     messageType: {
       type: String,
-      enum: ["text", "image", "video", "file"],
+      enum: ["text", "image", "video", "file","location"],
       default: "text",
     },
     fileUrl: {
@@ -109,6 +109,14 @@ const messageSchema = new mongoose.Schema(
     fileSize: {
       type: Number,
       default: null,
+    },
+    location : {
+      latitude : { type : Number },
+      longitude : { type : Number },
+      isLive : { type : Boolean, default : true },
+      liveDurationMinutes : { type : Number },
+      liveExpiresAt : { type : Date },
+      lastUpdatedAt : { type : Date },
     },
   },
   {

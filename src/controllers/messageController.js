@@ -138,6 +138,130 @@ const sendMessage = async (req, res) => {
   }
 };
 
+const sendLocationMessage = async (req, res) => {
+  try {
+    const { receiver, group, latitude, longitude, isLive, liveDurationMinutes } = req.body;
+
+    if (!receiver && !group) {
+      return sendError(
+        res,
+        STATUS_CODES.BAD_REQUEST,
+        "Receiver or group is required"
+      );
+    }
+
+    if (receiver && group) {
+      return sendError(
+        res,
+        STATUS_CODES.BAD_REQUEST,
+        "A message cannot have both a receiver and a group"
+      );
+    }
+
+    if (latitude === undefined || longitude === undefined) {
+      return sendError(
+        res,
+        STATUS_CODES.BAD_REQUEST,
+        "Latitude and longitude are required"
+      );
+    }
+
+    const sender = req.user.userId;
+
+    if (receiver) {
+      const receiverUser = await User.findById(receiver);
+
+      if (!receiverUser) {
+        return sendError(
+          res,
+          STATUS_CODES.NOT_FOUND,
+          MESSAGES.USER_NOT_FOUND
+        );
+      }
+    }
+
+    if (group) {
+      const groupDoc = await Group.findById(group);
+
+      if (!groupDoc) {
+        return sendError(
+          res,
+          STATUS_CODES.NOT_FOUND,
+          "Group not found"
+        );
+      }
+
+      const isMember = groupDoc.members.some(
+        (memberId) => memberId.toString() === sender.toString()
+      );
+
+      if (!isMember) {
+        return sendError(
+          res,
+          STATUS_CODES.FORBIDDEN,
+          "You are not a member of this group"
+        );
+      }
+    }
+
+    const live = Boolean(isLive);
+    const now = new Date();
+
+    let liveExpiresAt = null;
+
+    if (live) {
+      if (![15, 60, 480].includes(Number(liveDurationMinutes))) {
+        return sendError(
+          res,
+          STATUS_CODES.BAD_REQUEST,
+          "Invalid live duration"
+        );
+      }
+
+      liveExpiresAt = new Date(now.getTime() + liveDurationMinutes * 60000);
+    }
+
+    const message = await Message.create({
+      sender,
+      receiver: receiver || undefined,
+      group: group || undefined,
+      messageType: "location",
+      location: {
+        latitude,
+        longitude,
+        isLive: live,
+        liveDurationMinutes: live ? liveDurationMinutes : undefined,
+        liveExpiresAt: live ? liveExpiresAt : undefined,
+        lastUpdatedAt: now,
+      },
+    });
+
+    await message.populate("sender", "name username profileImage");
+
+    try {
+      const io = getIO();
+
+      if (receiver) {
+        io.to(receiver.toString()).emit("new_message", { message });
+        io.to(sender.toString()).emit("new_message", { message });
+      } else {
+        io.emitToGroup(group.toString(), "new_message", { message });
+      }
+    } catch (socketError) {
+      console.error("Socket notification error:", socketError);
+    }
+
+    return sendSuccess(res, STATUS_CODES.CREATED, { message });
+  } catch (error) {
+    console.error("Send location message error:", error);
+    return sendError(
+      res,
+      STATUS_CODES.INTERNAL_SERVER_ERROR,
+      MESSAGES.SERVER_ERROR
+    );
+  }
+};
+
 const getMessages = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -449,8 +573,10 @@ const editMessage = async (req, res) => {
 
 module.exports = {
   sendMessage,
+  sendLocationMessage,
   getMessages,
   deleteMessage,
   markMessagesAsRead,
   editMessage,
+  
 };

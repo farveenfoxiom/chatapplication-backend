@@ -19,6 +19,12 @@ const getMessagePreview = (message) => {
     return "🎥 Video";
   }
 
+  if (message.messageType === "location") {
+    return message.location?.isLive
+     ? "📍 Live location"
+     : "📍 location"
+  }
+
   if (message.messageType === "file") {
     return `📎 ${message.fileName || "File"}`;
   }
