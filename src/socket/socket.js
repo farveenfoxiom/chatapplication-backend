@@ -158,6 +158,70 @@ const initializeSocket = (server) => {
     socket.on("leave_group", (groupId) => {
       socket.leave(`group:${groupId}`);
     });
+    
+    socket.on("send_location_update", async ({ messageId, latitude, longitude }) => {
+      try {
+        const message = await Message.findById(messageId);
+
+        if (!message) return;
+        if (message.messageType !== "location") return;
+        if (message.sender.toString() !== socket.userId.toString()) return;
+        if (!message.location?.isLive) return;
+
+        if (
+          message.location.liveExpiresAt &&
+          new Date() > message.location.liveExpiresAt
+        ) {
+          return;
+        }
+
+        message.location.latitude = latitude;
+        message.location.longitude = longitude;
+        message.location.lastUpdatedAt = new Date();
+
+        await message.save();
+
+        const payload = {
+          messageId: message._id,
+          latitude,
+          longitude,
+          lastUpdatedAt: message.location.lastUpdatedAt,
+        };
+
+        if (message.group) {
+          io.emitToGroup(message.group.toString(), "location_update", payload);
+        } else {
+          io.to(message.receiver.toString()).emit("location_update", payload);
+          io.to(message.sender.toString()).emit("location_update", payload);
+        }
+      } catch (error) {
+        console.error("Send location update error:", error);
+      }
+    });
+
+    socket.on("stop_location_share", async ({ messageId }) => {
+      try {
+        const message = await Message.findById(messageId);
+
+        if (!message) return;
+        if (message.messageType !== "location") return;
+        if (message.sender.toString() !== socket.userId.toString()) return;
+
+        message.location.isLive = false;
+        await message.save();
+
+        const payload = { messageId: message._id };
+
+        if (message.group) {
+          io.emitToGroup(message.group.toString(), "location_share_stopped", payload);
+        } else {
+          io.to(message.receiver.toString()).emit("location_share_stopped", payload);
+          io.to(message.sender.toString()).emit("location_share_stopped", payload);
+        }
+      } catch (error) {
+        console.error("Stop location share error:", error);
+      }
+    });
 
     socket.on("disconnect", () => {
       const userSockets = onlineUsers.get(socket.userId);
