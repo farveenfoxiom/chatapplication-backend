@@ -665,11 +665,8 @@ const getGroupMessages = async (req,res) => {
       .populate("sender","name profileImage")
       .sort({createdAt:-1})
       .limit(limit);
-
     const hasMore = messages.length === limit;
-
     messages.reverse();
-
     return sendSuccess(
       res,
       STATUS_CODES.OK,
@@ -795,7 +792,7 @@ const markGroupMessagesAsRead = async (req,res) => {
       );
     }
 
-    await Message.updateMany(
+    const result = await Message.updateMany(
       {
         group: groupId,
         sender: { $ne: currentUserId },
@@ -816,6 +813,23 @@ const markGroupMessagesAsRead = async (req,res) => {
         },
       }
     );
+
+    try {
+      const io = getIO();
+
+      io.to(`group_${groupId}`).emit(
+        "group_messages_read",
+        {
+          groupId,
+          userId: currentUserId,
+        }
+      );
+    } catch (socketError) {
+      console.error(
+        "Group read socket error:",
+        socketError
+      );
+    }
     return sendSuccess(
       res,
       STATUS_CODES.OK,

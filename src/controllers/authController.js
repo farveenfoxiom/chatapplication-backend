@@ -8,7 +8,6 @@ const MESSAGES = require("../constants/messages");
 
 const {sendSuccess, sendError} = require("../utils/response");
 
-
 const signup = async (req, res) => {
   try {
     const { name, username, email, password } = req.body;

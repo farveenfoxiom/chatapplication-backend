@@ -29,6 +29,14 @@ const upload = multer({
       "image/png",
       "image/webp",
       "image/gif",
+
+      "audio/webm",
+      "audio/ogg",
+      "audio/mpeg",
+      "audio/mp4",
+      "audio/wav",
+      "audio/x-wav",
+
       "video/webm",
       "video/mp4",
       "video/quicktime", // .mov
@@ -54,6 +62,9 @@ const upload = multer({
       ".gif",
       ".mp4",
       ".webm",
+      ".ogg",
+      ".mp3",
+      ".wav",
       ".mov",
       ".avi",
       ".mkv",

@@ -86,8 +86,9 @@ const sendMessage = async (req, res) => {
     if (req.file) {
       const isImage = req.file.mimetype.startsWith("image/");
       const isVideo = req.file.mimetype.startsWith("video/");
+      const isAudio = req.file.mimetype.startsWith("audio/");
 
-      messageType = isImage ? "image" : isVideo ? "video" : "file";
+      messageType = isImage ? "image" : isVideo ? "video" : isAudio ? "audio" : "file";
       fileUrl = `/uploads/${req.file.filename}`;
       fileName = req.file.originalname;
       fileSize = req.file.size;

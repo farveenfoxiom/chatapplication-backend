@@ -3,10 +3,7 @@ const User = require("../models/User");
 const STATUS_CODES = require("../constants/statusCodes");
 const MESSAGES = require("../constants/messages");
 
-const {
-  sendSuccess,
-  sendError,
-} = require("../utils/response");
+const { sendSuccess, sendError,} = require("../utils/response");
 
 const getMe = async (req, res) => {
   try {
@@ -246,6 +243,7 @@ const uploadProfileImage = async (req, res) => {
     );
   }
 };
+
 module.exports = {
   getMe,
   updateMe,

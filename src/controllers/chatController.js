@@ -19,6 +19,9 @@ const getMessagePreview = (message) => {
     return "🎥 Video";
   }
 
+  if (message.messageType === "audio") {
+    return "🎤 Voice message";
+  }
   if (message.messageType === "location") {
     return message.location?.isLive
      ? "📍 Live location"
@@ -33,10 +36,15 @@ const getMessagePreview = (message) => {
     const extension = message.fileName.split(".").pop()?.toLowerCase();
 
     const imageExtensions = ["jpg", "jpeg", "png", "webp", "gif"];
+    const audioExtensions = ["mp3", "wav", "ogg", "m4a", "aac"];
     const videoExtensions = ["mp4", "webm", "mov", "avi", "mkv"];
 
     if (imageExtensions.includes(extension)) {
       return "📷 Photo";
+    }
+
+    if (audioExtensions.includes(extension)) {
+      return "🎤 Voice message";
     }
 
     if (videoExtensions.includes(extension)) {

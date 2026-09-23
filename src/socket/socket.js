@@ -223,6 +223,50 @@ const initializeSocket = (server) => {
       }
     });
 
+    socket.on("mark_audio_played", async ({ messageId }) => {
+      try {
+        const message = await Message.findById(messageId);
+        if (!message) {
+          console.log("mark_audio_played: message not found", messageId);
+          return;
+        }
+
+        const userId = socket.userId;
+        console.log("mark_audio_played hit:", {
+          userId,
+          messageReceiver: message.receiver?.toString(),
+          messageSender: message.sender?.toString(),
+          isGroup: Boolean(message.group),
+        });
+
+        if (message.group) {
+          // ...
+        } else {
+          if (message.receiver?.toString() !== userId) {
+            console.log("mark_audio_played: userId does not match receiver, skipping");
+            return;
+          }
+
+          message.isPlayed = true;
+          message.isRead = true;
+          message.isDelivered = true;
+          await message.save();
+
+          const payload = { messageId: message._id };
+
+          console.log("mark_audio_played: emitting to sender", message.sender.toString());
+          io.to(message.sender.toString()).emit("audio_marked_played", payload);
+
+          if (message.receiver) {
+            console.log("mark_audio_played: emitting to receiver", message.receiver.toString());
+            io.to(message.receiver.toString()).emit("audio_marked_played", payload);
+          }
+        }
+      } catch (error) {
+        console.error("Mark audio played error:", error);
+      }
+    });
+
     socket.on("disconnect", () => {
       const userSockets = onlineUsers.get(socket.userId);
 

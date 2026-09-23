@@ -47,6 +47,19 @@ const messageSchema = new mongoose.Schema(
       },
     ],
 
+    isPlayed: {
+      type: Boolean,
+      default: false,
+    },
+
+    // For group chats: tracks which members have listened to the audio
+    playedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     isEdited: {
       type: Boolean,
       default: false,
@@ -95,7 +108,7 @@ const messageSchema = new mongoose.Schema(
     ],
     messageType: {
       type: String,
-      enum: ["text", "image", "video", "file","location"],
+      enum: ["text", "image", "video", "file","audio","location"],
       default: "text",
     },
     fileUrl: {
