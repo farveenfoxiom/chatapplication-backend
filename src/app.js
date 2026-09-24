@@ -13,7 +13,7 @@ app.use(cors({
 app.use(express.json());
 
 app.use(
-  "/uploads",
+  "/api/uploads",
   express.static(path.join(__dirname, "../uploads"))
 );
 
