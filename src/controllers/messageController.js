@@ -9,7 +9,7 @@ const { sendSuccess, sendError } = require("../utils/response");
 const { getIO } = require("../socket/socketInstance");
 const { markDeliveredToOnlineMembers } = require("../utils/groupDelivery");
 
-const { uploadToCloudinary } = require("../middleware/upload");
+const { uploadToCloudinary } = require("../config/upload");
 
 const sendMessage = async (req, res) => {
   try {

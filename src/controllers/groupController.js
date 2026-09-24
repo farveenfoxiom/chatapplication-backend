@@ -7,7 +7,7 @@ const MESSAGES = require("../constants/messages");
 const { sendSuccess, sendError } = require("../utils/response");
 const { getIO } = require("../socket/socketInstance");
 
-const { uploadToCloudinary } = require("../middleware/upload");
+const { uploadToCloudinary } = require("../config/upload");
 const createGroup = async (req, res) => {
   try {
     const { name, memberIds } = req.body;

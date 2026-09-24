@@ -5,7 +5,7 @@ const MESSAGES = require("../constants/messages");
 
 const { sendSuccess, sendError,} = require("../utils/response");
 
-const { uploadToCloudinary } = require("../middleware/upload");
+const { uploadToCloudinary } = require("../config/upload");
 
 const getMe = async (req, res) => {
   try {
