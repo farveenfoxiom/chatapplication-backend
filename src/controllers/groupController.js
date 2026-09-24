@@ -7,6 +7,7 @@ const MESSAGES = require("../constants/messages");
 const { sendSuccess, sendError } = require("../utils/response");
 const { getIO } = require("../socket/socketInstance");
 
+const { uploadToCloudinary } = require("../middleware/upload");
 const createGroup = async (req, res) => {
   try {
     const { name, memberIds } = req.body;
@@ -229,7 +230,13 @@ const updateGroupInfo = async (req, res) => {
     }
 
     if (req.file) {
-      group.groupImage = `/uploads/${req.file.filename}`;
+      const uploadResult = await uploadToCloudinary(
+        req.file.buffer,
+        "chat-app/group-images",
+        `group-${groupId}-${Date.now()}`,
+        req.file.mimetype
+      );
+      group.groupImage = uploadResult.secure_url;
     }
 
     await group.save();

@@ -9,6 +9,8 @@ const { sendSuccess, sendError } = require("../utils/response");
 const { getIO } = require("../socket/socketInstance");
 const { markDeliveredToOnlineMembers } = require("../utils/groupDelivery");
 
+const { uploadToCloudinary } = require("../middleware/upload");
+
 const sendMessage = async (req, res) => {
   try {
     const { receiver, group, text } = req.body;
@@ -100,7 +102,15 @@ const sendMessage = async (req, res) => {
         : isAudio
         ? "audio"
         : "file";
-      fileUrl = `/uploads/${req.file.filename}`;
+
+      const uploadResult = await uploadToCloudinary(
+        req.file.buffer,
+        "chat-app/messages",
+        `msg-${sender}-${Date.now()}`,
+        req.file.mimetype
+      );
+
+      fileUrl = uploadResult.secure_url;
       fileName = req.file.originalname;
       fileSize = req.file.size;
     }

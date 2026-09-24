@@ -5,6 +5,8 @@ const MESSAGES = require("../constants/messages");
 
 const { sendSuccess, sendError,} = require("../utils/response");
 
+const { uploadToCloudinary } = require("../middleware/upload");
+
 const getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.userId).select("-password");
@@ -218,11 +220,15 @@ const uploadProfileImage = async (req, res) => {
       );
     }
 
-    // Store the local image URL in MongoDB
-    const imageUrl = `/uploads/profile-images/${req.file.filename}`;
-
+    const uploadResult = await uploadToCloudinary(
+      req.file.buffer,
+      "chat-app/profile-images",
+      `profile-${req.user.userId}-${Date.now()}`,
+      req.file.mimetype
+    );
+    
+    const imageUrl = uploadResult.secure_url;
     user.profileImage = imageUrl;
-
     await user.save();
 
     return sendSuccess(

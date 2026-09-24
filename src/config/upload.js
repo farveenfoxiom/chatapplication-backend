@@ -1,32 +1,7 @@
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
 
-const uploadPath = path.join(
-  __dirname,
-  "../../uploads/profile-images"
-);
-
-// Create folder if it doesn't exist
-if (!fs.existsSync(uploadPath)) {
-  fs.mkdirSync(uploadPath, {
-    recursive: true,
-  });
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadPath);
-  },
-
-  filename: (req, file, cb) => {
-    const extension = path.extname(file.originalname);
-
-    const filename = `profile-${req.user.userId}-${Date.now()}${extension}`;
-
-    cb(null, filename);
-  },
-});
+// No more path/fs needed — nothing is written to disk anymore
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   const allowedTypes = [
