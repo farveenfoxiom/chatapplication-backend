@@ -15,7 +15,7 @@ const {
   clearGroupChat,
 } = require("../controllers/groupController");
 const protect = require("../middleware/authMiddleware");
-const upload = require("../middleware/uploadMiddleware");
+const {upload} = require("../middleware/uploadMiddleware");
 
 router.post("/",protect,createGroup);
 router.get("/",protect,getUserGroups);

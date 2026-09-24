@@ -1,7 +1,7 @@
 const express = require("express");
 
 const protect = require("../middleware/authMiddleware");
-const upload = require("../middleware/uploadMiddleware");
+const {upload} = require("../middleware/uploadMiddleware");
 const {sendMessage , sendLocationMessage , getMessages , deleteMessage ,markMessagesAsRead,editMessage } = require("../controllers/messageController");
 
 const router = express.Router();

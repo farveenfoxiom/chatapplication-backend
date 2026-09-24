@@ -1,6 +1,6 @@
 const multer = require("multer");
 const path = require("path");
-const cloudinary = require("./cloudinary"); // adjust path if cloudinary.js lives elsewhere
+const cloudinary = require("../config/cloudinary"); // adjust path if cloudinary.js lives elsewhere
 const streamifier = require("streamifier");
 
 // ---- Multer (memory storage — no disk writes) ----
