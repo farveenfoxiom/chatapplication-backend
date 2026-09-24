@@ -7,9 +7,9 @@ const MESSAGES = require("../constants/messages");
 const { sendSuccess, sendError } = require("../utils/response");
 const { getIO } = require("../socket/socketInstance");
 
-const createGroup = async (req,res) => {
+const createGroup = async (req, res) => {
   try {
-    const { name,memberIds } = req.body;
+    const { name, memberIds } = req.body;
     const currentUserId = req.user.userId;
 
     if (!name?.trim()) {
@@ -29,7 +29,7 @@ const createGroup = async (req,res) => {
     }
 
     const uniqueMemberIds = Array.from(
-      new Set([...memberIds,currentUserId.toString()])
+      new Set([...memberIds, currentUserId.toString()])
     );
 
     const group = await Group.create({
@@ -40,31 +40,28 @@ const createGroup = async (req,res) => {
     });
 
     const populatedGroup = await Group.findById(group._id)
-      .populate("members","name username profileImage")
-      .populate("admins","name username profileImage");
+      .populate("members", "name username profileImage")
+      .populate("admins", "name username profileImage");
 
     try {
       const io = getIO();
 
-      io.joinMembersToGroupRoom(
-        group._id.toString(),
-        uniqueMemberIds
-      );
+      io.joinMembersToGroupRoom(group._id.toString(), uniqueMemberIds);
 
       uniqueMemberIds.forEach((memberId) => {
-        io.to(memberId.toString()).emit("group_created",{
+        io.to(memberId.toString()).emit("group_created", {
           group: populatedGroup,
         });
       });
     } catch (socketError) {
-      console.error("Socket notification error:",socketError);
+      console.error("Socket notification error:", socketError);
     }
 
-    return sendSuccess(res,STATUS_CODES.CREATED,{
+    return sendSuccess(res, STATUS_CODES.CREATED, {
       group: populatedGroup,
     });
   } catch (error) {
-    console.error("Create group error:",error);
+    console.error("Create group error:", error);
 
     return sendError(
       res,
@@ -74,16 +71,16 @@ const createGroup = async (req,res) => {
   }
 };
 
-const getUserGroups = async (req,res) => {
+const getUserGroups = async (req, res) => {
   try {
     const currentUserId = req.user.userId;
 
     const groups = await Group.find({
       members: currentUserId,
     })
-      .populate("members","name username profileImage")
-      .populate("admins","name username profileImage")
-      .sort({updatedAt:-1});
+      .populate("members", "name username profileImage")
+      .populate("admins", "name username profileImage")
+      .sort({ updatedAt: -1 });
 
     const groupsWithUnread = await Promise.all(
       groups.map(async (group) => {
@@ -114,24 +111,37 @@ const getUserGroups = async (req,res) => {
           },
           isDeletedForEveryone: { $ne: true },
         })
-          .sort({createdAt:-1})
-          .populate("sender","name profileImage");
+          .sort({ createdAt: -1 })
+          .populate("sender", "name profileImage");
+
+        // Chat was cleared: keep the row at the time of the last message
+        // it had, instead of falling back to the group's updatedAt
+        let clearedTime = null;
+
+        if (!lastMessage) {
+          const lastClearedMessage = await Message.findOne({
+            group: group._id,
+            "groupDeletedFor.user": currentUserId,
+          })
+            .sort({ createdAt: -1 })
+            .select("createdAt");
+
+          clearedTime = lastClearedMessage?.createdAt || null;
+        }
+
         return {
           ...group.toObject(),
           unreadCount,
           lastMessage: lastMessage || null,
-          lastMessageTime: lastMessage?.createdAt || group.updatedAt,
+          lastMessageTime:
+            lastMessage?.createdAt || clearedTime || group.updatedAt,
         };
       })
     );
 
-    return sendSuccess(
-      res,
-      STATUS_CODES.OK,
-      {groups: groupsWithUnread}
-    );
+    return sendSuccess(res, STATUS_CODES.OK, { groups: groupsWithUnread });
   } catch (error) {
-    console.error("Get user groups error:",error);
+    console.error("Get user groups error:", error);
 
     return sendError(
       res,
@@ -141,26 +151,21 @@ const getUserGroups = async (req,res) => {
   }
 };
 
-const getGroupById = async (req,res) => {
+const getGroupById = async (req, res) => {
   try {
     const { groupId } = req.params;
     const currentUserId = req.user.userId;
 
     const group = await Group.findById(groupId)
-      .populate("members","name username profileImage")
-      .populate("admins","name username profileImage");
+      .populate("members", "name username profileImage")
+      .populate("admins", "name username profileImage");
 
     if (!group) {
-      return sendError(
-        res,
-        STATUS_CODES.NOT_FOUND,
-        "Group not found"
-      );
+      return sendError(res, STATUS_CODES.NOT_FOUND, "Group not found");
     }
 
     const isMember = group.members.some(
-      (member) =>
-        member._id.toString() === currentUserId.toString()
+      (member) => member._id.toString() === currentUserId.toString()
     );
 
     if (!isMember) {
@@ -171,9 +176,9 @@ const getGroupById = async (req,res) => {
       );
     }
 
-    return sendSuccess(res,STATUS_CODES.OK,{group});
+    return sendSuccess(res, STATUS_CODES.OK, { group });
   } catch (error) {
-    console.error("Get group error:",error);
+    console.error("Get group error:", error);
 
     return sendError(
       res,
@@ -183,25 +188,20 @@ const getGroupById = async (req,res) => {
   }
 };
 
-const updateGroupInfo = async (req,res) => {
+const updateGroupInfo = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { name,bio } = req.body;
+    const { name, bio } = req.body;
     const currentUserId = req.user.userId;
 
     const group = await Group.findById(groupId);
 
     if (!group) {
-      return sendError(
-        res,
-        STATUS_CODES.NOT_FOUND,
-        "Group not found"
-      );
+      return sendError(res, STATUS_CODES.NOT_FOUND, "Group not found");
     }
 
     const isAdmin = group.admins.some(
-      (adminId) =>
-        adminId.toString() === currentUserId.toString()
+      (adminId) => adminId.toString() === currentUserId.toString()
     );
 
     if (!isAdmin) {
@@ -235,24 +235,24 @@ const updateGroupInfo = async (req,res) => {
     await group.save();
 
     const populatedGroup = await Group.findById(group._id)
-      .populate("members","name username profileImage")
-      .populate("admins","name username profileImage");
+      .populate("members", "name username profileImage")
+      .populate("admins", "name username profileImage");
 
     try {
       const io = getIO();
 
-      io.emitToGroup(groupId,"group_updated",{
+      io.emitToGroup(groupId, "group_updated", {
         group: populatedGroup,
       });
     } catch (socketError) {
-      console.error("Socket notification error:",socketError);
+      console.error("Socket notification error:", socketError);
     }
 
-    return sendSuccess(res,STATUS_CODES.OK,{
+    return sendSuccess(res, STATUS_CODES.OK, {
       group: populatedGroup,
     });
   } catch (error) {
-    console.error("Update group info error:",error);
+    console.error("Update group info error:", error);
 
     return sendError(
       res,
@@ -262,25 +262,20 @@ const updateGroupInfo = async (req,res) => {
   }
 };
 
-const updateGroupMembers = async (req,res) => {
+const updateGroupMembers = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { addMemberIds,removeMemberId } = req.body;
+    const { addMemberIds, removeMemberId } = req.body;
     const currentUserId = req.user.userId;
 
     const group = await Group.findById(groupId);
 
     if (!group) {
-      return sendError(
-        res,
-        STATUS_CODES.NOT_FOUND,
-        "Group not found"
-      );
+      return sendError(res, STATUS_CODES.NOT_FOUND, "Group not found");
     }
 
     const isAdmin = group.admins.some(
-      (adminId) =>
-        adminId.toString() === currentUserId.toString()
+      (adminId) => adminId.toString() === currentUserId.toString()
     );
 
     if (!isAdmin) {
@@ -294,9 +289,7 @@ const updateGroupMembers = async (req,res) => {
     let addedIds = [];
 
     if (Array.isArray(addMemberIds) && addMemberIds.length) {
-      const existingIds = group.members.map(
-        (id) => id.toString()
-      );
+      const existingIds = group.members.map((id) => id.toString());
 
       addedIds = addMemberIds.filter(
         (id) => !existingIds.includes(id.toString())
@@ -306,10 +299,7 @@ const updateGroupMembers = async (req,res) => {
     }
 
     if (removeMemberId) {
-      if (
-        removeMemberId.toString() ===
-        group.createdBy.toString()
-      ) {
+      if (removeMemberId.toString() === group.createdBy.toString()) {
         return sendError(
           res,
           STATUS_CODES.BAD_REQUEST,
@@ -318,8 +308,7 @@ const updateGroupMembers = async (req,res) => {
       }
 
       const isMember = group.members.some(
-        (id) =>
-          id.toString() === removeMemberId.toString()
+        (id) => id.toString() === removeMemberId.toString()
       );
 
       if (!isMember) {
@@ -331,13 +320,11 @@ const updateGroupMembers = async (req,res) => {
       }
 
       group.members = group.members.filter(
-        (id) =>
-          id.toString() !== removeMemberId.toString()
+        (id) => id.toString() !== removeMemberId.toString()
       );
 
       group.admins = group.admins.filter(
-        (id) =>
-          id.toString() !== removeMemberId.toString()
+        (id) => id.toString() !== removeMemberId.toString()
       );
     }
 
@@ -356,51 +343,38 @@ const updateGroupMembers = async (req,res) => {
     await group.save();
 
     const populatedGroup = await Group.findById(group._id)
-      .populate("members","name username profileImage")
-      .populate("admins","name username profileImage");
+      .populate("members", "name username profileImage")
+      .populate("admins", "name username profileImage");
 
     try {
       const io = getIO();
 
       if (addedIds.length) {
-        io.joinMembersToGroupRoom(
-          groupId,
-          addedIds
-        );
+        io.joinMembersToGroupRoom(groupId, addedIds);
 
         addedIds.forEach((memberId) => {
-          io.to(memberId.toString()).emit(
-            "group_created",
-            {
-              group: populatedGroup,
-            }
-          );
+          io.to(memberId.toString()).emit("group_created", {
+            group: populatedGroup,
+          });
         });
       }
 
       if (removeMemberId) {
-        io.leaveMemberFromGroupRoom(
-          groupId,
-          removeMemberId
-        );
+        io.leaveMemberFromGroupRoom(groupId, removeMemberId);
       }
 
-      io.emitToGroup(
-        groupId,
-        "group_updated",
-        {
-          group: populatedGroup,
-        }
-      );
+      io.emitToGroup(groupId, "group_updated", {
+        group: populatedGroup,
+      });
     } catch (socketError) {
-      console.error("Socket notification error:",socketError);
+      console.error("Socket notification error:", socketError);
     }
 
-    return sendSuccess(res,STATUS_CODES.OK,{
+    return sendSuccess(res, STATUS_CODES.OK, {
       group: populatedGroup,
     });
   } catch (error) {
-    console.error("Update group members error:",error);
+    console.error("Update group members error:", error);
 
     return sendError(
       res,
@@ -410,13 +384,13 @@ const updateGroupMembers = async (req,res) => {
   }
 };
 
-const updateGroupAdmins = async (req,res) => {
+const updateGroupAdmins = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { userId,action } = req.body;
+    const { userId, action } = req.body;
     const currentUserId = req.user.userId;
 
-    if (!userId || !["add","remove"].includes(action)) {
+    if (!userId || !["add", "remove"].includes(action)) {
       return sendError(
         res,
         STATUS_CODES.BAD_REQUEST,
@@ -427,16 +401,11 @@ const updateGroupAdmins = async (req,res) => {
     const group = await Group.findById(groupId);
 
     if (!group) {
-      return sendError(
-        res,
-        STATUS_CODES.NOT_FOUND,
-        "Group not found"
-      );
+      return sendError(res, STATUS_CODES.NOT_FOUND, "Group not found");
     }
 
     const isAdmin = group.admins.some(
-      (adminId) =>
-        adminId.toString() === currentUserId.toString()
+      (adminId) => adminId.toString() === currentUserId.toString()
     );
 
     if (!isAdmin) {
@@ -448,8 +417,7 @@ const updateGroupAdmins = async (req,res) => {
     }
 
     const isMember = group.members.some(
-      (memberId) =>
-        memberId.toString() === userId.toString()
+      (memberId) => memberId.toString() === userId.toString()
     );
 
     if (!isMember) {
@@ -462,8 +430,7 @@ const updateGroupAdmins = async (req,res) => {
 
     if (action === "add") {
       const alreadyAdmin = group.admins.some(
-        (adminId) =>
-          adminId.toString() === userId.toString()
+        (adminId) => adminId.toString() === userId.toString()
       );
 
       if (!alreadyAdmin) {
@@ -472,10 +439,7 @@ const updateGroupAdmins = async (req,res) => {
     }
 
     if (action === "remove") {
-      if (
-        userId.toString() ===
-        group.createdBy.toString()
-      ) {
+      if (userId.toString() === group.createdBy.toString()) {
         return sendError(
           res,
           STATUS_CODES.BAD_REQUEST,
@@ -492,36 +456,31 @@ const updateGroupAdmins = async (req,res) => {
       }
 
       group.admins = group.admins.filter(
-        (adminId) =>
-          adminId.toString() !== userId.toString()
+        (adminId) => adminId.toString() !== userId.toString()
       );
     }
 
     await group.save();
 
     const populatedGroup = await Group.findById(group._id)
-      .populate("members","name username profileImage")
-      .populate("admins","name username profileImage");
+      .populate("members", "name username profileImage")
+      .populate("admins", "name username profileImage");
 
     try {
       const io = getIO();
 
-      io.emitToGroup(
-        groupId,
-        "group_updated",
-        {
-          group: populatedGroup,
-        }
-      );
+      io.emitToGroup(groupId, "group_updated", {
+        group: populatedGroup,
+      });
     } catch (socketError) {
-      console.error("Socket notification error:",socketError);
+      console.error("Socket notification error:", socketError);
     }
 
-    return sendSuccess(res,STATUS_CODES.OK,{
+    return sendSuccess(res, STATUS_CODES.OK, {
       group: populatedGroup,
     });
   } catch (error) {
-    console.error("Update group admins error:",error);
+    console.error("Update group admins error:", error);
 
     return sendError(
       res,
@@ -531,7 +490,7 @@ const updateGroupAdmins = async (req,res) => {
   }
 };
 
-const leaveGroup = async (req,res) => {
+const leaveGroup = async (req, res) => {
   try {
     const { groupId } = req.params;
     const currentUserId = req.user.userId;
@@ -539,16 +498,11 @@ const leaveGroup = async (req,res) => {
     const group = await Group.findById(groupId);
 
     if (!group) {
-      return sendError(
-        res,
-        STATUS_CODES.NOT_FOUND,
-        "Group not found"
-      );
+      return sendError(res, STATUS_CODES.NOT_FOUND, "Group not found");
     }
 
     const isMember = group.members.some(
-      (id) =>
-        id.toString() === currentUserId.toString()
+      (id) => id.toString() === currentUserId.toString()
     );
 
     if (!isMember) {
@@ -560,19 +514,14 @@ const leaveGroup = async (req,res) => {
     }
 
     group.members = group.members.filter(
-      (id) =>
-        id.toString() !== currentUserId.toString()
+      (id) => id.toString() !== currentUserId.toString()
     );
 
     group.admins = group.admins.filter(
-      (id) =>
-        id.toString() !== currentUserId.toString()
+      (id) => id.toString() !== currentUserId.toString()
     );
 
-    if (
-      group.admins.length === 0 &&
-      group.members.length > 0
-    ) {
+    if (group.admins.length === 0 && group.members.length > 0) {
       group.admins.push(group.members[0]);
     }
 
@@ -581,28 +530,21 @@ const leaveGroup = async (req,res) => {
     try {
       const io = getIO();
 
-      io.emitToGroup(
+      io.emitToGroup(groupId, "member_left", {
         groupId,
-        "member_left",
-        {
-          groupId,
-          userId: currentUserId,
-        }
-      );
+        userId: currentUserId,
+      });
 
-      io.leaveMemberFromGroupRoom(
-        groupId,
-        currentUserId
-      );
+      io.leaveMemberFromGroupRoom(groupId, currentUserId);
     } catch (socketError) {
-      console.error("Socket notification error:",socketError);
+      console.error("Socket notification error:", socketError);
     }
 
-    return sendSuccess(res,STATUS_CODES.OK,{
+    return sendSuccess(res, STATUS_CODES.OK, {
       message: "Left group successfully",
     });
   } catch (error) {
-    console.error("Leave group error:",error);
+    console.error("Leave group error:", error);
 
     return sendError(
       res,
@@ -612,26 +554,21 @@ const leaveGroup = async (req,res) => {
   }
 };
 
-const getGroupMessages = async (req,res) => {
+const getGroupMessages = async (req, res) => {
   try {
     const { groupId } = req.params;
     const currentUserId = req.user.userId;
-    const limit = Math.min(parseInt(req.query.limit) || 20,50);
+    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
     const before = req.query.before;
 
     const group = await Group.findById(groupId);
 
     if (!group) {
-      return sendError(
-        res,
-        STATUS_CODES.NOT_FOUND,
-        "Group not found"
-      );
+      return sendError(res, STATUS_CODES.NOT_FOUND, "Group not found");
     }
 
     const isMember = group.members.some(
-      (id) =>
-        id.toString() === currentUserId.toString()
+      (id) => id.toString() === currentUserId.toString()
     );
 
     if (!isMember) {
@@ -662,21 +599,20 @@ const getGroupMessages = async (req,res) => {
     }
 
     const messages = await Message.find(query)
-      .populate("sender","name profileImage")
-      .sort({createdAt:-1})
+      .populate("sender", "name profileImage")
+      .sort({ createdAt: -1 })
       .limit(limit);
+
     const hasMore = messages.length === limit;
+
     messages.reverse();
-    return sendSuccess(
-      res,
-      STATUS_CODES.OK,
-      {
-        messages,
-        hasMore,
-      }
-    );
+
+    return sendSuccess(res, STATUS_CODES.OK, {
+      messages,
+      hasMore,
+    });
   } catch (error) {
-    console.error("Get group messages error:",error);
+    console.error("Get group messages error:", error);
 
     return sendError(
       res,
@@ -686,7 +622,7 @@ const getGroupMessages = async (req,res) => {
   }
 };
 
-const clearGroupChat = async (req,res) => {
+const clearGroupChat = async (req, res) => {
   try {
     const { groupId } = req.params;
     const currentUserId = req.user.userId;
@@ -694,16 +630,11 @@ const clearGroupChat = async (req,res) => {
     const group = await Group.findById(groupId);
 
     if (!group) {
-      return sendError(
-        res,
-        STATUS_CODES.NOT_FOUND,
-        "Group not found"
-      );
+      return sendError(res, STATUS_CODES.NOT_FOUND, "Group not found");
     }
 
     const isMember = group.members.some(
-      (id) =>
-        id.toString() === currentUserId.toString()
+      (id) => id.toString() === currentUserId.toString()
     );
 
     if (!isMember) {
@@ -736,25 +667,18 @@ const clearGroupChat = async (req,res) => {
     try {
       const io = getIO();
 
-      io.to(currentUserId.toString()).emit(
-        "group_chat_cleared",
-        {
-          groupId,
-        }
-      );
+      io.to(currentUserId.toString()).emit("group_chat_cleared", {
+        groupId,
+      });
     } catch (socketError) {
-      console.error("Socket notification error:",socketError);
+      console.error("Socket notification error:", socketError);
     }
 
-    return sendSuccess(
-      res,
-      STATUS_CODES.OK,
-      {
-        message: "Group chat cleared successfully",
-      }
-    );
+    return sendSuccess(res, STATUS_CODES.OK, {
+      message: "Group chat cleared successfully",
+    });
   } catch (error) {
-    console.error("Clear group chat error:",error);
+    console.error("Clear group chat error:", error);
 
     return sendError(
       res,
@@ -764,7 +688,7 @@ const clearGroupChat = async (req,res) => {
   }
 };
 
-const markGroupMessagesAsRead = async (req,res) => {
+const markGroupMessagesAsRead = async (req, res) => {
   try {
     const { groupId } = req.params;
     const currentUserId = req.user.userId;
@@ -772,16 +696,11 @@ const markGroupMessagesAsRead = async (req,res) => {
     const group = await Group.findById(groupId);
 
     if (!group) {
-      return sendError(
-        res,
-        STATUS_CODES.NOT_FOUND,
-        "Group not found"
-      );
+      return sendError(res, STATUS_CODES.NOT_FOUND, "Group not found");
     }
 
     const isMember = group.members.some(
-      (id) =>
-        id.toString() === currentUserId.toString()
+      (id) => id.toString() === currentUserId.toString()
     );
 
     if (!isMember) {
@@ -792,7 +711,7 @@ const markGroupMessagesAsRead = async (req,res) => {
       );
     }
 
-    const result = await Message.updateMany(
+    await Message.updateMany(
       {
         group: groupId,
         sender: { $ne: currentUserId },
@@ -817,28 +736,20 @@ const markGroupMessagesAsRead = async (req,res) => {
     try {
       const io = getIO();
 
-      io.to(`group_${groupId}`).emit(
-        "group_messages_read",
-        {
-          groupId,
-          userId: currentUserId,
-        }
-      );
+      // Same helper the other group events use, so the room name matches
+      io.emitToGroup(groupId, "group_messages_read", {
+        groupId,
+        userId: currentUserId,
+      });
     } catch (socketError) {
-      console.error(
-        "Group read socket error:",
-        socketError
-      );
+      console.error("Group read socket error:", socketError);
     }
-    return sendSuccess(
-      res,
-      STATUS_CODES.OK,
-      {
-        message: "Group messages marked as read",
-      }
-    );
+
+    return sendSuccess(res, STATUS_CODES.OK, {
+      message: "Group messages marked as read",
+    });
   } catch (error) {
-    console.error("Mark group messages as read error:",error);
+    console.error("Mark group messages as read error:", error);
 
     return sendError(
       res,

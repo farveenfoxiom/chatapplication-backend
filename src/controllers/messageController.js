@@ -7,6 +7,7 @@ const MESSAGES = require("../constants/messages");
 
 const { sendSuccess, sendError } = require("../utils/response");
 const { getIO } = require("../socket/socketInstance");
+const { markDeliveredToOnlineMembers } = require("../utils/groupDelivery");
 
 const sendMessage = async (req, res) => {
   try {
@@ -28,6 +29,14 @@ const sendMessage = async (req, res) => {
       );
     }
 
+    if (text !== undefined && typeof text !== "string") {
+      return sendError(
+        res,
+        STATUS_CODES.BAD_REQUEST,
+        "Message text must be a string"
+      );
+    }
+
     if ((!text || text.trim() === "") && !req.file) {
       return sendError(
         res,
@@ -38,7 +47,7 @@ const sendMessage = async (req, res) => {
 
     const sender = req.user.userId;
 
-    // --- 1:1 message path (unchanged behavior) ---
+    // --- 1:1 message path ---
     if (receiver) {
       const receiverUser = await User.findById(receiver);
 
@@ -58,11 +67,7 @@ const sendMessage = async (req, res) => {
       groupDoc = await Group.findById(group);
 
       if (!groupDoc) {
-        return sendError(
-          res,
-          STATUS_CODES.NOT_FOUND,
-          "Group not found"
-        );
+        return sendError(res, STATUS_CODES.NOT_FOUND, "Group not found");
       }
 
       const isMember = groupDoc.members.some(
@@ -88,7 +93,13 @@ const sendMessage = async (req, res) => {
       const isVideo = req.file.mimetype.startsWith("video/");
       const isAudio = req.file.mimetype.startsWith("audio/");
 
-      messageType = isImage ? "image" : isVideo ? "video" : isAudio ? "audio" : "file";
+      messageType = isImage
+        ? "image"
+        : isVideo
+        ? "video"
+        : isAudio
+        ? "audio"
+        : "file";
       fileUrl = `/uploads/${req.file.filename}`;
       fileName = req.file.originalname;
       fileSize = req.file.size;
@@ -106,22 +117,29 @@ const sendMessage = async (req, res) => {
       fileName,
       fileSize,
     });
-    await message.populate("sender", "name username profileImage")
+
+    await message.populate("sender", "name username profileImage");
+
+    // Group: record which members are online right now as "delivered".
+    // Must happen BEFORE emitting, so everyone gets deliveredTo with the message.
+    if (groupDoc) {
+      try {
+        await markDeliveredToOnlineMembers(message, groupDoc);
+      } catch (deliveryError) {
+        console.error("Group delivery error:", deliveryError);
+      }
+    }
 
     try {
       const io = getIO();
 
       if (receiver) {
         io.to(receiver.toString()).emit("new_message", { message });
-        // Also notify the sender's own socket(s), so ChatList and any
-        // other open tab/device for the sender updates in real time too
-        // (mirrors group messages, where the sender is already in the
-        // group room and therefore already receives this event).
+        // Also notify the sender's own sockets so ChatList and any other
+        // open tab/device updates in real time
         io.to(sender.toString()).emit("new_message", { message });
       } else {
-        // io.emitToGroup is attached in socket.js and broadcasts to every
-        // member's socket currently joined to this group's room. The
-        // sender is a member, so they receive this too.
+        // The sender is a member of the group room, so they receive this too
         io.emitToGroup(group.toString(), "new_message", { message });
       }
     } catch (socketError) {
@@ -141,7 +159,14 @@ const sendMessage = async (req, res) => {
 
 const sendLocationMessage = async (req, res) => {
   try {
-    const { receiver, group, latitude, longitude, isLive, liveDurationMinutes } = req.body;
+    const {
+      receiver,
+      group,
+      latitude,
+      longitude,
+      isLive,
+      liveDurationMinutes,
+    } = req.body;
 
     if (!receiver && !group) {
       return sendError(
@@ -159,11 +184,21 @@ const sendLocationMessage = async (req, res) => {
       );
     }
 
-    if (latitude === undefined || longitude === undefined) {
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+
+    if (
+      latitude === undefined ||
+      longitude === undefined ||
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lng) ||
+      Math.abs(lat) > 90 ||
+      Math.abs(lng) > 180
+    ) {
       return sendError(
         res,
         STATUS_CODES.BAD_REQUEST,
-        "Latitude and longitude are required"
+        "Valid latitude and longitude are required"
       );
     }
 
@@ -181,15 +216,13 @@ const sendLocationMessage = async (req, res) => {
       }
     }
 
+    let groupDoc = null;
+
     if (group) {
-      const groupDoc = await Group.findById(group);
+      groupDoc = await Group.findById(group);
 
       if (!groupDoc) {
-        return sendError(
-          res,
-          STATUS_CODES.NOT_FOUND,
-          "Group not found"
-        );
+        return sendError(res, STATUS_CODES.NOT_FOUND, "Group not found");
       }
 
       const isMember = groupDoc.members.some(
@@ -206,12 +239,13 @@ const sendLocationMessage = async (req, res) => {
     }
 
     const live = Boolean(isLive);
+    const duration = Number(liveDurationMinutes);
     const now = new Date();
 
     let liveExpiresAt = null;
 
     if (live) {
-      if (![15, 60, 480].includes(Number(liveDurationMinutes))) {
+      if (![15, 60, 480].includes(duration)) {
         return sendError(
           res,
           STATUS_CODES.BAD_REQUEST,
@@ -219,7 +253,7 @@ const sendLocationMessage = async (req, res) => {
         );
       }
 
-      liveExpiresAt = new Date(now.getTime() + liveDurationMinutes * 60000);
+      liveExpiresAt = new Date(now.getTime() + duration * 60000);
     }
 
     const message = await Message.create({
@@ -228,16 +262,24 @@ const sendLocationMessage = async (req, res) => {
       group: group || undefined,
       messageType: "location",
       location: {
-        latitude,
-        longitude,
+        latitude: lat,
+        longitude: lng,
         isLive: live,
-        liveDurationMinutes: live ? liveDurationMinutes : undefined,
+        liveDurationMinutes: live ? duration : undefined,
         liveExpiresAt: live ? liveExpiresAt : undefined,
         lastUpdatedAt: now,
       },
     });
 
     await message.populate("sender", "name username profileImage");
+
+    if (groupDoc) {
+      try {
+        await markDeliveredToOnlineMembers(message, groupDoc);
+      } catch (deliveryError) {
+        console.error("Group delivery error:", deliveryError);
+      }
+    }
 
     try {
       const io = getIO();
@@ -342,9 +384,7 @@ const getMessages = async (req, res) => {
 
     const hasMore = messages.length > limit;
 
-    const paginatedMessages = hasMore
-      ? messages.slice(0, limit)
-      : messages;
+    const paginatedMessages = hasMore ? messages.slice(0, limit) : messages;
 
     paginatedMessages.reverse();
 
@@ -368,7 +408,9 @@ const deleteMessage = async (req, res) => {
     const { messageId } = req.params;
     const { deleteFor } = req.body;
     const currentUser = req.user.userId;
+
     const message = await Message.findById(messageId);
+
     if (!message) {
       return sendError(
         res,
@@ -378,16 +420,22 @@ const deleteMessage = async (req, res) => {
     }
 
     const isGroupMessage = Boolean(message.group);
+    const isSender = message.sender.toString() === currentUser.toString();
 
     if (deleteFor === "me") {
-      const isSender = message.sender.toString() === currentUser.toString();
-      const isReceiver = isGroupMessage
-        ? false
-        : message.receiver.toString() === currentUser.toString();
+      let allowed;
 
-      // For a group message, any member deleting "for me" is allowed
-      // (matches WhatsApp behavior); for 1:1 it stays sender-or-receiver.
-      if (!isSender && !isReceiver && !isGroupMessage) {
+      if (isGroupMessage) {
+        // Any current member of the group may delete a message "for me"
+        allowed = Boolean(
+          await Group.exists({ _id: message.group, members: currentUser })
+        );
+      } else {
+        allowed =
+          isSender || message.receiver?.toString() === currentUser.toString();
+      }
+
+      if (!allowed) {
         return sendError(
           res,
           STATUS_CODES.FORBIDDEN,
@@ -398,12 +446,16 @@ const deleteMessage = async (req, res) => {
       const alreadyDeleted = message.deletedFor.some(
         (id) => id.toString() === currentUser.toString()
       );
+
       if (!alreadyDeleted) {
         message.deletedFor.push(currentUser);
         await message.save();
       }
+
       try {
         const io = getIO();
+
+        // Only the deleter's own sockets are told
         io.to(currentUser.toString()).emit("message_deleted", {
           messageId: message._id,
           deleteFor: "me",
@@ -414,14 +466,15 @@ const deleteMessage = async (req, res) => {
       } catch (socketError) {
         console.error("Socket notification error:", socketError);
       }
+
       return sendSuccess(res, STATUS_CODES.OK, {
         message: "Message deleted for you",
         deleteFor: "me",
         messageId: message._id,
       });
     }
+
     if (deleteFor === "everyone") {
-      const isSender = message.sender.toString() === currentUser.toString();
       if (!isSender) {
         return sendError(
           res,
@@ -429,10 +482,11 @@ const deleteMessage = async (req, res) => {
           MESSAGES.CANNOT_DELETE_MESSAGE
         );
       }
-      const wasUnread = !message.isRead;
+
       message.isDeletedForEveryone = true;
       message.deletedAt = new Date();
       await message.save();
+
       try {
         const io = getIO();
 
@@ -460,12 +514,14 @@ const deleteMessage = async (req, res) => {
       } catch (socketError) {
         console.error("Socket notification error:", socketError);
       }
+
       return sendSuccess(res, STATUS_CODES.OK, {
         message: "Message deleted for everyone",
         deleteFor: "everyone",
         messageId: message._id,
       });
     }
+
     return sendError(res, STATUS_CODES.BAD_REQUEST, "Invalid delete option");
   } catch (error) {
     console.error("Delete message error:", error);
@@ -481,6 +537,7 @@ const markMessagesAsRead = async (req, res) => {
   try {
     const { userId } = req.params;
     const currentUser = req.user.userId;
+
     const result = await Message.updateMany(
       {
         sender: userId,
@@ -492,6 +549,7 @@ const markMessagesAsRead = async (req, res) => {
         $set: { isRead: true },
       }
     );
+
     if (result.modifiedCount > 0) {
       try {
         const io = getIO();
@@ -503,6 +561,7 @@ const markMessagesAsRead = async (req, res) => {
         console.error("Socket read receipt error:", socketError);
       }
     }
+
     return sendSuccess(res, STATUS_CODES.OK, {
       message: "Message marked as read",
       modifiedCount: result.modifiedCount,
@@ -522,14 +581,17 @@ const editMessage = async (req, res) => {
     const { messageId } = req.params;
     const { text } = req.body;
     const currentUser = req.user.userId;
-    if (!text || text.trim() === "") {
+
+    if (typeof text !== "string" || text.trim() === "") {
       return sendError(
         res,
         STATUS_CODES.BAD_REQUEST,
         MESSAGES.MESSAGE_TEXT_REQUIRED
       );
     }
+
     const message = await Message.findById(messageId);
+
     if (!message) {
       return sendError(
         res,
@@ -537,6 +599,7 @@ const editMessage = async (req, res) => {
         MESSAGES.MESSAGE_NOT_FOUND
       );
     }
+
     if (message.sender.toString() !== currentUser.toString()) {
       return sendError(
         res,
@@ -544,20 +607,36 @@ const editMessage = async (req, res) => {
         MESSAGES.CANNOT_EDIT_MESSAGE
       );
     }
+
+    // The UI only offers Edit on text messages; enforce it on the server too
+    if (message.messageType !== "text" || message.isDeletedForEveryone) {
+      return sendError(
+        res,
+        STATUS_CODES.BAD_REQUEST,
+        "Only text messages can be edited"
+      );
+    }
+
     message.text = text.trim();
     message.isEdited = true;
     await message.save();
     await message.populate("sender", "name username profileImage");
-    const io = getIO();
 
-    if (message.group) {
-      io.emitToGroup(message.group.toString(), "message_edited", {
-        message,
-      });
-    } else {
-      io.to(message.receiver.toString()).emit("message_edited", { message });
-      io.to(message.sender.toString()).emit("message_edited", { message });
+    try {
+      const io = getIO();
+
+      if (message.group) {
+        io.emitToGroup(message.group.toString(), "message_edited", {
+          message,
+        });
+      } else {
+        io.to(message.receiver.toString()).emit("message_edited", { message });
+        io.to(message.sender.toString()).emit("message_edited", { message });
+      }
+    } catch (socketError) {
+      console.error("Socket notification error:", socketError);
     }
+
     return sendSuccess(res, STATUS_CODES.OK, {
       message: "Message edited successfully",
       updatedMessage: message,
@@ -579,5 +658,4 @@ module.exports = {
   deleteMessage,
   markMessagesAsRead,
   editMessage,
-  
 };

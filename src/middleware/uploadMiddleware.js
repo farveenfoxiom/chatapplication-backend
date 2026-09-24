@@ -17,9 +17,6 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    // Videos are much larger than images/docs, so the old flat 5MB cap
-    // rejected every recording before it even reached fileFilter. Bump
-    // this to match (or exceed) the client's video size cap.
     fileSize: 50 * 1024 * 1024, // 50 MB
   },
   fileFilter: (req, file, cb) => {
