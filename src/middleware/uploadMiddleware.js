@@ -1,18 +1,10 @@
 const multer = require("multer");
 const path = require("path");
+const cloudinary = require("./cloudinary"); // adjust path if cloudinary.js lives elsewhere
+const streamifier = require("streamifier");
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-
-  filename: (req, file, cb) => {
-    const extension = path.extname(file.originalname);
-    const fileName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${extension}`;
-
-    cb(null, fileName);
-  },
-});
+// ---- Multer (memory storage — no disk writes) ----
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
@@ -36,12 +28,10 @@ const upload = multer({
 
       "video/webm",
       "video/mp4",
-      "video/quicktime", // .mov
-      "video/x-msvideo", // .avi
-      "video/x-matroska", // .mkv
+      "video/quicktime",
+      "video/x-msvideo",
+      "video/x-matroska",
       "video/3gpp",
-      // Some browsers/recorders report a generic type for recorded blobs;
-      // the extension check below is the real safety net for those cases.
       "application/octet-stream",
       "application/pdf",
       "application/msword",
@@ -52,33 +42,13 @@ const upload = multer({
     ];
 
     const allowedExtensions = [
-      ".jpg",
-      ".jpeg",
-      ".png",
-      ".webp",
-      ".gif",
-      ".mp4",
-      ".webm",
-      ".ogg",
-      ".mp3",
-      ".wav",
-      ".mov",
-      ".avi",
-      ".mkv",
-      ".3gp",
-      ".pdf",
-      ".doc",
-      ".docx",
-      ".xls",
-      ".xlsx",
-      ".zip",
+      ".jpg", ".jpeg", ".png", ".webp", ".gif",
+      ".mp4", ".webm", ".ogg", ".mp3", ".wav",
+      ".mov", ".avi", ".mkv", ".3gp",
+      ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".zip",
     ];
 
     const extension = path.extname(file.originalname).toLowerCase();
-
-    console.log("File name:", file.originalname);
-    console.log("MIME type:", file.mimetype);
-    console.log("Extension:", extension);
 
     if (
       allowedMimeTypes.includes(file.mimetype) ||
@@ -91,4 +61,28 @@ const upload = multer({
   },
 });
 
-module.exports = upload;
+// ---- Cloudinary upload helper ----
+const getResourceType = (mimetype) => {
+  if (mimetype.startsWith("image/")) return "image";
+  if (mimetype.startsWith("video/")) return "video";
+  return "raw"; // audio, pdf, docx, zip, etc.
+};
+
+const uploadToCloudinary = (fileBuffer, folder, publicId, mimetype) => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        public_id: publicId,
+        resource_type: getResourceType(mimetype),
+      },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      }
+    );
+    streamifier.createReadStream(fileBuffer).pipe(stream);
+  });
+};
+
+module.exports = { upload, uploadToCloudinary, getResourceType };
