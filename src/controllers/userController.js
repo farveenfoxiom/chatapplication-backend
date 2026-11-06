@@ -105,6 +105,7 @@ const updateMe = async (req, res) => {
   }
 };
 
+
 const searchUsers = async (req, res) => {
   try {
     const { query, skip = 0, limit = 7 } = req.query;
