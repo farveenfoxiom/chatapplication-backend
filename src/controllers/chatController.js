@@ -114,10 +114,6 @@ const getRecentChats = async (req, res) => {
     const currentUser = req.user.userId;
 
     const messages = await Message.find({
-      // receiver: { $exists: true } excludes group messages, which use
-      // `group` instead of `receiver` — without this, a group message
-      // reaches this loop with receiver === undefined and crashes when
-      // otherUser._id is accessed below.
       receiver: { $exists: true },
       $or: [{ sender: currentUser }, { receiver: currentUser }],
     })

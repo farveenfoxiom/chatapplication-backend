@@ -137,9 +137,7 @@ const messageSchema = new mongoose.Schema(
   }
 );
 
-// Enforce "exactly one of receiver/group" at the model level, so a bug in
-// any controller path can't silently create an orphaned or ambiguous
-// message.
+
 messageSchema.pre("validate", function () {
   const hasReceiver = Boolean(this.receiver);
   const hasGroup = Boolean(this.group);

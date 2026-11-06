@@ -11,4 +11,5 @@ router.post("/login", login);
 router.get("/me", protect, getMe);
 router.get("/search", protect, searchUsers);
 
+
 module.exports = router;
